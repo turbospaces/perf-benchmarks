@@ -11,6 +11,7 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.handler.codec.MessageToMessageEncoder;
+import io.netty.util.concurrent.EventExecutorGroup;
 
 import java.util.List;
 
@@ -23,7 +24,7 @@ public abstract class Misc {
     static final JsonEncoder jsonEncoder = new JsonEncoder();
     static final JsonDecoder jsonDecoder = new JsonDecoder();
 
-    public static ChannelInitializer<Channel> channelInitializer(final ChannelInboundHandlerAdapter h) {
+    public static ChannelInitializer<Channel> channelInitializer(final EventExecutorGroup group, final ChannelInboundHandlerAdapter h) {
         return new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(Channel channel) {
@@ -34,7 +35,12 @@ public abstract class Misc {
 
                 p.addLast( "frameEncoder", lfp );
                 p.addLast( "jsonEncoder", jsonEncoder );
-                p.addLast( h );
+                if ( group != null ) {
+                    p.addLast( group, h );
+                }
+                else {
+                    p.addLast( h );
+                }
             };
         };
     }
@@ -49,6 +55,7 @@ public abstract class Misc {
         }
     }
 
+    // NO need to release buffer, this is automatically done in parent class.
     @Sharable
     private static class JsonDecoder extends MessageToMessageDecoder<ByteBuf> {
         @Override

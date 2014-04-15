@@ -1,6 +1,5 @@
 package com.turbospaces.poc;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.Channel;
@@ -14,7 +13,6 @@ import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.util.ReferenceCountUtil;
 
 import java.util.concurrent.CountDownLatch;
 
@@ -56,7 +54,7 @@ public class NettyTcpClient implements IOWorker {
             bootstrap.group( eventGroup );
             bootstrap.channel( channelClass );
 
-            bootstrap.handler( Misc.channelInitializer( cmh ) );
+            bootstrap.handler( Misc.channelInitializer( null, cmh ) );
             bootstrap.connect( BIND_ADDRESS );
             cmhs[i] = cmh;
         }
@@ -81,12 +79,12 @@ public class NettyTcpClient implements IOWorker {
 
     @Sharable
     private static class ClientMessageHandler extends ChannelInboundHandlerAdapter {
-        private final CountDownLatch cl;
+        private final CountDownLatch allConnected;
         private final CountDownLatch responseCount;
         private Channel channel;
 
         public ClientMessageHandler(CountDownLatch allConnected, CountDownLatch responseCount) {
-            this.cl = allConnected;
+            this.allConnected = allConnected;
             this.responseCount = responseCount;
         }
         public void execute(final BenchmarkOptions options) {
@@ -103,26 +101,19 @@ public class NettyTcpClient implements IOWorker {
         }
         @Override
         public void channelActive(ChannelHandlerContext ctx) throws Exception {
-            cl.countDown();
+            allConnected.countDown();
             channel = ctx.channel();
             super.channelActive( ctx );
         }
         @Override
         public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
-            checkArgument( msg instanceof Messages );
-            try {
-                LOGGER.trace( "IN: cmd={}", msg );
-                responseCount.countDown();
-            }
-            finally {
-                ReferenceCountUtil.release( msg );
-            }
+            LOGGER.trace( "IN: cmd={}", msg );
+            responseCount.countDown();
         }
     }
 
     public static void main(String... args) throws Exception {
         BenchmarkOptions options = new BenchmarkOptions();
-        options.ioWorkerThreads = options.ioWorkerThreads * 2;
         NettyTcpClient tcpServer = new NettyTcpClient();
         tcpServer.start( options );
     }

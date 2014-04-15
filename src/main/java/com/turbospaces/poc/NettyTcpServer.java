@@ -14,7 +14,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +39,8 @@ public class NettyTcpServer implements IOWorker {
             channelClass = NioServerSocketChannel.class;
         }
 
-        final ServerMessageHandler smh = new ServerMessageHandler();
+        ServerMessageHandler smh = new ServerMessageHandler();
+        DefaultEventExecutorGroup executor = new DefaultEventExecutorGroup( Runtime.getRuntime().availableProcessors() );
 
         bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
         bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
@@ -50,7 +51,7 @@ public class NettyTcpServer implements IOWorker {
         bootstrap.group( workerEventGroup );
         bootstrap.channel( channelClass );
 
-        bootstrap.childHandler( Misc.channelInitializer( smh ) );
+        bootstrap.childHandler( Misc.channelInitializer( executor, smh ) );
         bootstrap.handler( new LoggingHandler( LogLevel.TRACE ) );
         bootstrap.bind( IOWorker.BIND_ADDRESS ).sync();
     }
@@ -69,16 +70,16 @@ public class NettyTcpServer implements IOWorker {
     private static class ServerMessageHandler extends ChannelInboundHandlerAdapter {
         @Override
         public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
-            UserCommand ucmd = (UserCommand) msg;
             LOGGER.trace( "IN: cmd={}", msg );
 
-            ucmd.processed = true;
-            ctx.write( ucmd, ctx.voidPromise() );
+            UserCommand ucmd = (UserCommand) msg;
 
-            try {}
-            finally {
-                ReferenceCountUtil.release( msg );
-            }
+            // TODO - actual message processing logic must be here
+            // Message resp = MessageHandler.process(ucmd, ctx.channel());
+            UserCommand resp = ucmd;
+            ucmd.processed = true;
+
+            ctx.write( resp, ctx.voidPromise() ); // just write response
         }
         @Override
         public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
