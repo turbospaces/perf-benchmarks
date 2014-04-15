@@ -1,7 +1,7 @@
 package com.turbospaces.poc;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler.Sharable;
@@ -16,16 +16,14 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.ReferenceCountUtil;
 
-import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Throwables;
 import com.turbospaces.poc.Messages.UserCommand;
 
-public class NettyTcpClient implements Server {
+public class NettyTcpClient implements IOWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger( NettyTcpClient.class );
 
     private MultithreadEventLoopGroup eventGroup;
@@ -33,7 +31,7 @@ public class NettyTcpClient implements Server {
 
     @Override
     public void start(final BenchmarkOptions options) throws Exception {
-        if ( Server.EPOLL_MODE ) {
+        if ( IOWorker.EPOLL_MODE ) {
             eventGroup = new EpollEventLoopGroup( options.ioWorkerThreads );
             channelClass = EpollSocketChannel.class;
         }
@@ -50,8 +48,8 @@ public class NettyTcpClient implements Server {
         for ( int i = 0; i < options.socketConnections; i++ ) {
             ClientMessageHandler cmh = new ClientMessageHandler( cl, responseCount );
             Bootstrap bootstrap = new Bootstrap();
-            bootstrap.option( ChannelOption.SO_RCVBUF, Server.SO_RCVBUF );
-            bootstrap.option( ChannelOption.SO_SNDBUF, Server.SO_SNDBUF );
+            bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
+            bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
             bootstrap.option( ChannelOption.TCP_NODELAY, true );
             bootstrap.option( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
 
@@ -65,10 +63,11 @@ public class NettyTcpClient implements Server {
         cl.await(); // wait for all to connect
 
         long now = System.currentTimeMillis();
-        for ( int i = 0; i < options.socketConnections; i++ ) {
-            for ( int j = 1; j <= options.batchesPerSocket; j++ ) {
+        for ( int b = 1; b <= options.batchesPerSocket; b++ ) {
+            for ( int i = 0; i < options.socketConnections; i++ ) {
                 cmhs[i].execute( options );
             }
+            Thread.sleep( options.sleepBetweenBatches );
         }
         responseCount.await(); // wait for all responses
         long took = System.currentTimeMillis() - now;
@@ -95,15 +94,8 @@ public class NettyTcpClient implements Server {
                 @Override
                 public void run() {
                     for ( int j = 1; j <= options.operationsPerBatch; j++ ) {
-                        try {
-                            UserCommand userCommand = UserCommand.some( System.currentTimeMillis() );
-                            byte[] json = Misc.mapper.writeValueAsBytes( userCommand );
-                            channel.write( channel.alloc().ioBuffer( json.length ).writeBytes( json ), channel.voidPromise() );
-                        }
-                        catch ( IOException e ) {
-                            LOGGER.error( e.getMessage(), e );
-                            Throwables.propagate( e );
-                        }
+                        UserCommand userCommand = UserCommand.some( System.currentTimeMillis() );
+                        channel.write( userCommand, channel.voidPromise() );
                     }
                     channel.flush();
                 }
@@ -116,14 +108,10 @@ public class NettyTcpClient implements Server {
             super.channelActive( ctx );
         }
         @Override
-        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
+            checkArgument( msg instanceof Messages );
             try {
-                ByteBuf buf = (ByteBuf) msg;
-                byte[] array = new byte[buf.readableBytes()];
-                buf.getBytes( 0, array );
-
-                Messages cmd = Misc.mapper.readValue( array, Messages.class );
-                LOGGER.trace( "IN: cmd={}", cmd );
+                LOGGER.trace( "IN: cmd={}", msg );
                 responseCount.countDown();
             }
             finally {
@@ -134,6 +122,7 @@ public class NettyTcpClient implements Server {
 
     public static void main(String... args) throws Exception {
         BenchmarkOptions options = new BenchmarkOptions();
+        options.ioWorkerThreads = options.ioWorkerThreads * 2;
         NettyTcpClient tcpServer = new NettyTcpClient();
         tcpServer.start( options );
     }

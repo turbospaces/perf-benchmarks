@@ -1,7 +1,6 @@
 package com.turbospaces.poc;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
@@ -22,7 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import com.turbospaces.poc.Messages.UserCommand;
 
-public class NettyTcpServer implements Server {
+public class NettyTcpServer implements IOWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger( NettyTcpServer.class );
 
     private final ServerBootstrap bootstrap = new ServerBootstrap();
@@ -31,7 +30,7 @@ public class NettyTcpServer implements Server {
 
     @Override
     public void start(BenchmarkOptions options) throws Exception {
-        if ( Server.EPOLL_MODE ) {
+        if ( IOWorker.EPOLL_MODE ) {
             workerEventGroup = new EpollEventLoopGroup( options.ioWorkerThreads );
             channelClass = EpollServerSocketChannel.class;
         }
@@ -40,11 +39,11 @@ public class NettyTcpServer implements Server {
             channelClass = NioServerSocketChannel.class;
         }
 
-        ServerMessageHandler smh = new ServerMessageHandler();
+        final ServerMessageHandler smh = new ServerMessageHandler();
 
-        bootstrap.option( ChannelOption.SO_RCVBUF, Server.SO_RCVBUF );
-        bootstrap.option( ChannelOption.SO_SNDBUF, Server.SO_SNDBUF );
-        bootstrap.option( ChannelOption.SO_BACKLOG, Server.SO_BACKLOG );
+        bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
+        bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
+        bootstrap.option( ChannelOption.SO_BACKLOG, IOWorker.SO_BACKLOG );
         bootstrap.option( ChannelOption.TCP_NODELAY, true );
         bootstrap.childOption( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
 
@@ -53,7 +52,7 @@ public class NettyTcpServer implements Server {
 
         bootstrap.childHandler( Misc.channelInitializer( smh ) );
         bootstrap.handler( new LoggingHandler( LogLevel.TRACE ) );
-        bootstrap.bind( Server.BIND_ADDRESS ).sync();
+        bootstrap.bind( IOWorker.BIND_ADDRESS ).sync();
     }
 
     @Override
@@ -69,23 +68,14 @@ public class NettyTcpServer implements Server {
     @Sharable
     private static class ServerMessageHandler extends ChannelInboundHandlerAdapter {
         @Override
-        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            try {
-                ByteBuf buf = (ByteBuf) msg;
-                byte[] array = new byte[buf.readableBytes()];
-                buf.getBytes( 0, array );
+        public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
+            UserCommand ucmd = (UserCommand) msg;
+            LOGGER.trace( "IN: cmd={}", msg );
 
-                Messages cmd = Misc.mapper.readValue( array, Messages.class );
-                LOGGER.trace( "IN: cmd={}", cmd );
+            ucmd.processed = true;
+            ctx.write( ucmd, ctx.voidPromise() );
 
-                if ( cmd instanceof UserCommand ) {
-                    UserCommand ucmd = (UserCommand) cmd;
-                    ucmd.processed = true;
-                    byte[] asBytes = Misc.mapper.writeValueAsBytes( ucmd );
-                    ByteBuf b = ctx.alloc().ioBuffer( asBytes.length ).writeBytes( asBytes );
-                    ctx.write( b, ctx.channel().voidPromise() );
-                }
-            }
+            try {}
             finally {
                 ReferenceCountUtil.release( msg );
             }

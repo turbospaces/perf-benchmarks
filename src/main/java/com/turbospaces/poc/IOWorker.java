@@ -4,7 +4,7 @@ import io.netty.util.NetUtil;
 
 import java.net.InetSocketAddress;
 
-public interface Server {
+public interface IOWorker {
     boolean EPOLL_MODE = false;
     int SO_RCVBUF = 128 * 1024;
     int SO_SNDBUF = 128 * 1024;
@@ -15,10 +15,13 @@ public interface Server {
     void stop() throws Exception;
 
     public static class BenchmarkOptions {
-        public int socketConnections = 64;
-        public int ioWorkerThreads = Runtime.getRuntime().availableProcessors() * 2;
 
-        public int batchesPerSocket = 1024 * 4;
+        public int ioWorkerThreads = Runtime.getRuntime().availableProcessors();
+
+        public int socketConnections = 512;
+        public int batchesPerSocket = 1024;
         public int operationsPerBatch = 16;
+
+        public int sleepBetweenBatches = 1 * operationsPerBatch;
     }
 }
