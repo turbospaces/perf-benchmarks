@@ -18,7 +18,7 @@ public interface IOWorker {
 
         public int ioWorkerThreads = Runtime.getRuntime().availableProcessors(); // we don't need more
 
-        public int socketConnections = 128;
+        public int socketConnections = 400;
         public int batchesPerSocket = 1024;
         public int operationsPerBatch = 16;
 

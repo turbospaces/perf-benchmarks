@@ -40,7 +40,7 @@ public class NettyTcpServer implements IOWorker {
         }
 
         ServerMessageHandler smh = new ServerMessageHandler();
-        DefaultEventExecutorGroup executor = new DefaultEventExecutorGroup( Runtime.getRuntime().availableProcessors() );
+        DefaultEventExecutorGroup executor = new DefaultEventExecutorGroup( Runtime.getRuntime().availableProcessors() * 2 );
 
         bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
         bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );

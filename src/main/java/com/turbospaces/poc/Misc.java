@@ -62,7 +62,7 @@ public abstract class Misc {
         protected void decode(ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception {
             byte[] array = new byte[msg.readableBytes()];
             msg.getBytes( 0, array );
-            Messages cmd = Misc.mapper.readValue( array, Messages.class );
+            Messages cmd = Misc.mapper.readValue( array, Messages.UserCommand.class );
             out.add( cmd );
         }
     }
