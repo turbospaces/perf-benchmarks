@@ -13,7 +13,7 @@ public class MessagesTest {
 
     @Test
     public void json() throws IOException {
-        String json = Misc.mapper.writeValueAsString( UserCommand.some( 1 ) );
+        String json = Misc.mapper.writeValueAsString( UserCommand.some() );
         logger.debug( json );
         logger.debug( Misc.mapper.readValue( json, Messages.class ).toString() );
     }

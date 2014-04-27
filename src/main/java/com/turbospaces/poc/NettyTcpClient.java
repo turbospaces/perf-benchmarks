@@ -14,11 +14,17 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Slf4jReporter;
+import com.codahale.metrics.Timer;
+import com.google.common.collect.Maps;
 import com.turbospaces.poc.Messages.UserCommand;
 
 public class NettyTcpClient implements IOWorker {
@@ -42,9 +48,11 @@ public class NettyTcpClient implements IOWorker {
         CountDownLatch responseCount = new CountDownLatch( totalOperations );
         CountDownLatch cl = new CountDownLatch( options.socketConnections );
         ClientMessageHandler[] cmhs = new ClientMessageHandler[options.socketConnections];
+        MetricRegistry metrics = new MetricRegistry();
+        Timer latency = metrics.timer( "responses-latency" );
 
         for ( int i = 0; i < options.socketConnections; i++ ) {
-            ClientMessageHandler cmh = new ClientMessageHandler( cl, responseCount );
+            ClientMessageHandler cmh = new ClientMessageHandler( cl, responseCount, latency );
             Bootstrap bootstrap = new Bootstrap();
             bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
             bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
@@ -68,8 +76,17 @@ public class NettyTcpClient implements IOWorker {
             Thread.sleep( options.sleepBetweenBatches );
         }
         responseCount.await(); // wait for all responses
+
         long took = System.currentTimeMillis() - now;
         LOGGER.info( "took = {} ms, TPS = {}, totalOps = {}", took, (int) ( 1000 * ( ( (double) totalOperations ) / took ) ), totalOperations );
+        Slf4jReporter reporter = Slf4jReporter
+                .forRegistry( metrics )
+                .outputTo( LOGGER )
+                .convertRatesTo( TimeUnit.MILLISECONDS )
+                .convertDurationsTo( TimeUnit.MILLISECONDS )
+                .build();
+        reporter.report();
+
         stop();
     }
     @Override
@@ -81,19 +98,24 @@ public class NettyTcpClient implements IOWorker {
     private static class ClientMessageHandler extends ChannelInboundHandlerAdapter {
         private final CountDownLatch allConnected;
         private final CountDownLatch responseCount;
+        private final Timer latency;
+        private final ConcurrentMap<String, UserCommand> corr;
         private Channel channel;
 
-        public ClientMessageHandler(CountDownLatch allConnected, CountDownLatch responseCount) {
+        public ClientMessageHandler(CountDownLatch allConnected, CountDownLatch responseCount, Timer latency) {
             this.allConnected = allConnected;
             this.responseCount = responseCount;
+            this.latency = latency;
+            this.corr = Maps.newConcurrentMap();
         }
         public void execute(final BenchmarkOptions options) {
             channel.eventLoop().execute( new Runnable() {
                 @Override
                 public void run() {
                     for ( int j = 1; j <= options.operationsPerBatch; j++ ) {
-                        UserCommand userCommand = UserCommand.some( System.currentTimeMillis() );
-                        channel.write( userCommand, channel.voidPromise() );
+                        UserCommand cmd = UserCommand.some();
+                        corr.put( cmd.headers.correlationId, cmd );
+                        channel.write( cmd, channel.voidPromise() );
                     }
                     channel.flush();
                 }
@@ -108,7 +130,9 @@ public class NettyTcpClient implements IOWorker {
         @Override
         public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
             LOGGER.trace( "IN: cmd={}", msg );
+            UserCommand cmd = (UserCommand) msg;
             responseCount.countDown();
+            latency.update( System.currentTimeMillis() - corr.remove( cmd.headers.correlationId ).headers.timestamp, TimeUnit.MILLISECONDS );
         }
     }
 

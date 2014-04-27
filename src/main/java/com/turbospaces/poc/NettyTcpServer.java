@@ -14,7 +14,6 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.util.concurrent.DefaultEventExecutorGroup;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,12 +39,16 @@ public class NettyTcpServer implements IOWorker {
         }
 
         ServerMessageHandler smh = new ServerMessageHandler();
-        DefaultEventExecutorGroup executor = new DefaultEventExecutorGroup( Runtime.getRuntime().availableProcessors() * 2 );
+        NioEventLoopGroup executor = new NioEventLoopGroup( Runtime.getRuntime().availableProcessors() );
 
-        bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
-        bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
         bootstrap.option( ChannelOption.SO_BACKLOG, IOWorker.SO_BACKLOG );
+        bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
+        bootstrap.childOption( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
+        bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
+        bootstrap.childOption( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
         bootstrap.option( ChannelOption.TCP_NODELAY, true );
+        bootstrap.childOption( ChannelOption.TCP_NODELAY, true );
+        bootstrap.option( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
         bootstrap.childOption( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
 
         bootstrap.group( workerEventGroup );

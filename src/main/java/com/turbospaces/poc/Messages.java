@@ -20,15 +20,15 @@ public abstract class Messages {
             return Objects.toStringHelper( this ).add( "username", username ).add( "headers", headers ).toString();
         }
 
-        public static UserCommand some(long iteration) {
+        public static UserCommand some() {
             UserCommand c = new UserCommand();
 
-            c.username = "user-xxx-" + iteration;
+            c.username = "user-xxx";
 
             c.headers = new MessageHeaders();
             c.headers.correlationId = "correlationId" + INC.incrementAndGet();
             c.headers.timestamp = System.currentTimeMillis();
-            c.headers.errorCode = (int) iteration;
+            c.headers.errorCode = 0;
 
             return c;
         }
