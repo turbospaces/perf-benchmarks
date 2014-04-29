@@ -12,8 +12,7 @@ import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollServerSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +27,7 @@ public class NettyTcpServer implements IOWorker {
     private Class<? extends ServerChannel> channelClass;
 
     @Override
-    public void start(BenchmarkOptions options) throws Exception {
+    public void start(final BenchmarkOptions options) throws Exception {
         if ( IOWorker.EPOLL_MODE ) {
             workerEventGroup = new EpollEventLoopGroup( options.ioWorkerThreads );
             channelClass = EpollServerSocketChannel.class;
@@ -39,23 +38,26 @@ public class NettyTcpServer implements IOWorker {
         }
 
         ServerMessageHandler smh = new ServerMessageHandler();
-        NioEventLoopGroup executor = new NioEventLoopGroup( Runtime.getRuntime().availableProcessors() );
+        DefaultEventExecutorGroup executor = new DefaultEventExecutorGroup( Runtime.getRuntime().availableProcessors() );
 
         bootstrap.option( ChannelOption.SO_BACKLOG, IOWorker.SO_BACKLOG );
+        //
         bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
         bootstrap.childOption( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
+        //
         bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
         bootstrap.childOption( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
+        //
         bootstrap.option( ChannelOption.TCP_NODELAY, true );
         bootstrap.childOption( ChannelOption.TCP_NODELAY, true );
+        //
         bootstrap.option( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
         bootstrap.childOption( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
-
+        //
         bootstrap.group( workerEventGroup );
         bootstrap.channel( channelClass );
-
         bootstrap.childHandler( Misc.channelInitializer( executor, smh ) );
-        bootstrap.handler( new LoggingHandler( LogLevel.TRACE ) );
+        //
         bootstrap.bind( IOWorker.BIND_ADDRESS ).sync();
     }
 
@@ -76,11 +78,9 @@ public class NettyTcpServer implements IOWorker {
             LOGGER.trace( "IN: cmd={}", msg );
 
             UserCommand ucmd = (UserCommand) msg;
-
-            // TODO - actual message processing logic must be here
-            // Message resp = MessageHandler.process(ucmd, ctx.channel());
             UserCommand resp = ucmd;
             ucmd.processed = true;
+            ucmd.headers.timestamp = System.currentTimeMillis();
 
             ctx.write( resp, ctx.voidPromise() ); // just write response
         }
@@ -88,6 +88,11 @@ public class NettyTcpServer implements IOWorker {
         public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
             ctx.flush();
             super.channelReadComplete( ctx );
+        }
+        @Override
+        public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+            LOGGER.warn( "channel writeability changed to={}", ctx.channel().isWritable() );
+            super.channelWritabilityChanged( ctx );
         }
     }
 }

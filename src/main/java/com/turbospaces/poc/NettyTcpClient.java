@@ -17,6 +17,7 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,11 +53,14 @@ public class NettyTcpClient implements IOWorker {
         Timer latency = metrics.timer( "responses-latency" );
 
         for ( int i = 0; i < options.socketConnections; i++ ) {
-            ClientMessageHandler cmh = new ClientMessageHandler( cl, responseCount, latency );
+            ClientMessageHandler cmh = new ClientMessageHandler( options, cl, responseCount, latency );
             Bootstrap bootstrap = new Bootstrap();
+            //
             bootstrap.option( ChannelOption.SO_RCVBUF, IOWorker.SO_RCVBUF );
             bootstrap.option( ChannelOption.SO_SNDBUF, IOWorker.SO_SNDBUF );
+            //
             bootstrap.option( ChannelOption.TCP_NODELAY, true );
+            //
             bootstrap.option( ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT );
 
             bootstrap.group( eventGroup );
@@ -71,7 +75,7 @@ public class NettyTcpClient implements IOWorker {
         long now = System.currentTimeMillis();
         for ( int b = 1; b <= options.batchesPerSocket; b++ ) {
             for ( int i = 0; i < options.socketConnections; i++ ) {
-                cmhs[i].execute( options );
+                cmhs[i].execute();
             }
             Thread.sleep( options.sleepBetweenBatches );
         }
@@ -99,16 +103,20 @@ public class NettyTcpClient implements IOWorker {
         private final CountDownLatch allConnected;
         private final CountDownLatch responseCount;
         private final Timer latency;
+        private final AtomicLong respCount;
         private final ConcurrentMap<String, UserCommand> corr;
+        private final BenchmarkOptions options;
         private Channel channel;
 
-        public ClientMessageHandler(CountDownLatch allConnected, CountDownLatch responseCount, Timer latency) {
+        public ClientMessageHandler(BenchmarkOptions options, CountDownLatch allConnected, CountDownLatch responseCount, Timer latency) {
+            this.options = options;
             this.allConnected = allConnected;
             this.responseCount = responseCount;
             this.latency = latency;
             this.corr = Maps.newConcurrentMap();
+            this.respCount = new AtomicLong();
         }
-        public void execute(final BenchmarkOptions options) {
+        public void execute() {
             channel.eventLoop().execute( new Runnable() {
                 @Override
                 public void run() {
@@ -124,15 +132,26 @@ public class NettyTcpClient implements IOWorker {
         @Override
         public void channelActive(ChannelHandlerContext ctx) throws Exception {
             allConnected.countDown();
-            channel = ctx.channel();
             super.channelActive( ctx );
+        }
+        @Override
+        public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+            super.handlerAdded(ctx);
+            channel = ctx.channel();
         }
         @Override
         public void channelRead(final ChannelHandlerContext ctx, final Object msg) {
             LOGGER.trace( "IN: cmd={}", msg );
-            UserCommand cmd = (UserCommand) msg;
             responseCount.countDown();
-            latency.update( System.currentTimeMillis() - corr.remove( cmd.headers.correlationId ).headers.timestamp, TimeUnit.MILLISECONDS );
+            long currRespCount = respCount.incrementAndGet();
+
+            UserCommand resp = (UserCommand) msg;
+            UserCommand req = corr.remove( resp.headers.correlationId );
+
+            if ( currRespCount > options.batchesPerSocket * options.operationsPerBatch * 0.10 ) {
+                long took = System.currentTimeMillis() - req.headers.timestamp;
+                latency.update( took, TimeUnit.MILLISECONDS );
+            }
         }
     }
 

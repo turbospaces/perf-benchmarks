@@ -5,7 +5,7 @@ import io.netty.util.NetUtil;
 import java.net.InetSocketAddress;
 
 public interface IOWorker {
-    boolean EPOLL_MODE = false;
+    boolean EPOLL_MODE = true;
     int SO_RCVBUF = 128 * 1024;
     int SO_SNDBUF = 128 * 1024;
     int SO_BACKLOG = 1024;
@@ -15,13 +15,10 @@ public interface IOWorker {
     void stop() throws Exception;
 
     public static class BenchmarkOptions {
-
-        public int ioWorkerThreads = Runtime.getRuntime().availableProcessors(); // we don't need more
-
-        public int socketConnections = Runtime.getRuntime().availableProcessors() * 25;
+        public int ioWorkerThreads = Runtime.getRuntime().availableProcessors();
+        public int socketConnections = Runtime.getRuntime().availableProcessors() * 50;
         public int batchesPerSocket = 1024;
         public int operationsPerBatch = 16;
-
         public int sleepBetweenBatches = 1 * operationsPerBatch;
     }
 }
