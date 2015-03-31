@@ -1,0 +1,48 @@
+package com.turbospaces.protobuf;
+
+option optimize_for = SPEED;
+enum PhoneType {
+	MOBILE = 0;
+	HOME = 1;
+	WORK = 2;
+}
+
+message PhoneNumber {
+	required string number = 1;
+	optional PhoneType type = 2 [default = MOBILE];
+}
+
+message Player {
+	required int64 id = 1;
+	required string username = 2;
+	optional string firstname = 3;
+	optional string lastname = 4;
+	optional string email = 5;
+	repeated PhoneNumber phone = 6;
+}
+
+message BaseCommand {
+	extensions 101 to max;
+	enum CommandType {
+		GetPlayerInfoRequest = 1;
+		GetPlayerInfoResponse = 2;
+	}
+
+	required CommandType type = 1;
+	required string qualifier = 2;
+	required string corrId = 3;
+}
+
+message GetPlayerInfoRequest {
+	extend BaseCommand {
+		required GetPlayerInfoRequest body = 101;
+	}
+	required string username = 1;
+}
+
+message GetPlayerInfoResponse {
+	extend BaseCommand {
+		required GetPlayerInfoResponse body = 102;
+	}
+	optional Player player = 1;
+}
